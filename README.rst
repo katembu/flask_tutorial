@@ -4,7 +4,7 @@ Simple Dummy Voting system
 
 - Install it::
 
-	pip install flask-appbuilder
+	pip install -r requirements.txt
 	git clone git@github.com:katembu/flask_tutorial.git
 
 - Run it::
