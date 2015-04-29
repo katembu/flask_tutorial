@@ -1,0 +1,55 @@
+{% extends "appbuilder/base.html" %}
+    {% block content %}
+
+    <div class="container">
+       <div class="row">
+          <div class="panel panel-primary">
+             <div class="panel-heading">
+                <h4 class="panel-title">Election Results</h4>
+             </div>
+
+             <div>
+                <div class="well well-sm">
+                   &nbsp;
+                   <div class="pull-right">
+                      <strong>Record Count:</strong> {{ param1.count() }}
+                   </div>
+                </div>
+                <div class="table-responsive">
+                    {% if param1.count() > 0 %}
+                   <table class="table table-bordered table-hover">
+                      <thead>
+                         <tr>
+                            <th>Name</th>
+                            <th>Post</th>
+                            <th>Area</th>
+                            <th>Status</th>
+                            <th>Results </th>
+                         </tr>
+                      </thead>
+                      <tbody>
+                          {% for item in param1 %}
+                         <tr>
+                            <td> {{ item.name }}</td>
+                            <td> {{ item.posts.name }}</td>
+                            <td> {{ item.area() }}</td>
+                            <td> {{ item.status() }}</td>
+                            <td> <a href="/election/show/{{item.uuid}}">
+    View Results
+</a> </td>
+                         </tr>
+                         {% endfor %}
+                      </tbody>
+                   </table>
+                   {% else %}
+                    <div class="alert alert-danger">
+                        <span class="glyphicon glyphicon-exclamation-sign" aria-hidden="true"></span>
+                        <span class="sr-only">Error:</span> No Elections Record
+                    </div>
+                   {% endif %}
+                </div>
+             </div>
+          </div>
+       </div>
+    </div>
+{% endblock %}

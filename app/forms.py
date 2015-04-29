@@ -1,9 +1,11 @@
 import re
+from datetime import datetime
 from wtforms import Form, StringField, SelectField, IntegerField, \
                     DateField, BooleanField
 from wtforms.validators import *
 from flask_appbuilder.fieldwidgets import BS3TextAreaFieldWidget, \
-                            BS3TextFieldWidget, Select2Widget, DatePickerWidget
+                            BS3TextFieldWidget, Select2Widget, DatePickerWidget, \
+                            DateTimePickerWidget
 from flask.ext.appbuilder.forms import DynamicForm
 from wtforms.ext.sqlalchemy.fields import QuerySelectField
 from .models import Ward, SmsloggerLoggedmessage, Voters, Delegates, Votes
@@ -40,6 +42,55 @@ def validate_telephone(form, field):
 def validate_pin(form, field):
     if (len(field.data) >= 1 and not re.match('^[0-9]{4,8}$', field.data)):
         raise ValidationError('Field must be 4 to 8 characters')
+
+
+class ElectionForm(DynamicForm):
+    name = StringField(('Name'),
+                             description=('Name!'),
+                             validators=[DataRequired()],
+                             widget=BS3TextFieldWidget())
+    uuid = StringField(('UUID'),
+                             validators=[DataRequired()],
+                             widget=BS3TextFieldWidget())
+    is_approved = BooleanField(('Vote Using Mobile No'))
+    voting_starts_at_date = DateField(('DOB'),
+                              description=('Date of Birth!'),
+                              validators=[DataRequired()],
+                              widget=DateTimePickerWidget())
+    voting_ends_at_date = DateField(('DOB'),
+                              description=('Date of Birth!'),
+                              validators=[DataRequired()],
+                              widget=DateTimePickerWidget())
+    voting_extended_until_date = DateField(('DOB'),
+                              description=('Date of Birth!'),
+                              validators=[DataRequired()],
+                              widget=DateTimePickerWidget())
+    approved_at_date = DateField(('DOB'),
+                              description=('Date of Birth!'),
+                              validators=[DataRequired()],
+                              widget=DateTimePickerWidget())
+    frozen_at_date = DateField(('DOB'),
+                              description=('Date of Birth!'),
+                              validators=[DataRequired()],
+                              widget=DateTimePickerWidget())
+    archived_at_date = DateField(('DOB'),
+                              description=('Date of Birth!'),
+                              validators=[DataRequired()],
+                              widget=DateTimePickerWidget())
+    voters_frozen_at_date = DateField(('DOB'),
+                              description=('Date of Birth!'),
+                              validators=[DataRequired()],
+                              widget=DateTimePickerWidget())
+    result_tallied_at_date = DateField(('DOB'),
+                              description=('Date of Birth!'),
+                              validators=[DataRequired()],
+                              widget=DateTimePickerWidget())
+    ward_id = QuerySelectField('Ward',
+                            query_factory=ward_query,
+                            widget=Select2Widget())
+    post_id = QuerySelectField('Ward',
+                            query_factory=ward_query,
+                            widget=Select2Widget())
 
 
 class MyForm(DynamicForm):
@@ -168,9 +219,20 @@ def process_sms(p):
         pass_test = db.session.query(Voters).filter_by(telephone=identity, voter_pin=pin)
         if pass_test.count() == 1:
             split_text.pop(0)
+            r = []
             for key in split_text:
-                complete_voting(key, pass_test[0])
+                r.append(complete_voting(key, pass_test[0]))
+
             p.status = SMSForm.STATUS_SUCCESS
+            db.session.commit()
+
+            logged = SmsloggerLoggedmessage()
+            logged.direction = SMSForm.DIRECTION_OUTGOING
+            logged.text =  ", ".join(r)
+            logged.identity = identity
+            logged.response_to_id = p.id
+            logged.status = SMSForm.STATUS_PENDING
+            db.session.add(logged)
             db.session.commit()
         else:
             message = "Invalid PIN"
@@ -179,7 +241,7 @@ def process_sms(p):
             logged.direction = SMSForm.DIRECTION_OUTGOING
             logged.text = message
             logged.identity = identity
-            logged.response_to_id = p
+            logged.response_to_id = p.id
             logged.status = SMSForm.STATUS_PENDING
             db.session.add(logged)
             db.session.commit()
@@ -196,12 +258,43 @@ def complete_voting(key, voter):
     count_key = db.session.query(Delegates).filter_by(candidate_key=key)
     if count_key.count() == 1:
         d = count_key[0]
-        if voter.ward == d.voters.ward:
-            '''Check if this person has voted for the same Person Before '''
-            check = db.session.query(Votes).filter_by(delegates=d, voters=voter)
-            if check.count() < 1:
-                v = Votes()
-                v.delegates = d
-                v.voters = voter
-                db.session.add(v)
-                db.session.commit()
+        AllowVote = False
+        ward = d.elections.ward_id
+        post = d.elections.posts.name
+        mm = voter.ward
+        E = d.elections
+        N = datetime.now()
+        ##CHECK ELECTION IS ACTIVE
+        ##President
+        if (N >= E.voting_starts_at_date and N <= E.voting_ends_at_date and E.is_approved == True):
+            if post == 'Senator' and (mm.constituency.county.id==ward):
+                AllowVote = True
+            elif post == 'Women Representative' and (mm.constituency.county.id==ward):
+                AllowVote = True
+            elif post == 'Governor' and (mm.constituency.county.id==ward):
+                AllowVote = True
+            elif post == 'Member of Parliament' and (mm.constituency.id==ward):
+                AllowVote = True
+            elif post == 'County Assembly Representative' and (mm.id==ward):
+                AllowVote = True
+            else:
+                AllowVote = False
+
+            if AllowVote:
+                '''Check if this person has voted for the same Person Before '''
+                check = db.session.query(Votes).filter_by(elections=d.elections, voters=voter)
+                if check.count() < 1:
+                    v = Votes()
+                    v.delegates = d
+                    v.elections = d.elections
+                    v.voters = voter
+                    db.session.add(v)
+                    db.session.commit()
+
+                    return "Vote for %s was successful" % (d.voters.full_name())
+                else:
+                    return "You've already voted"
+            else:
+                return "Invalid Candidate %s" % (key)
+        else:
+            return "No Active Election"

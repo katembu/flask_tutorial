@@ -1,12 +1,16 @@
 import datetime
+import uuid
 from sqlalchemy import *
+from flask import Markup, url_for
 from sqlalchemy.orm import relationship
 from flask.ext.appbuilder import Model, Base
 from flask.ext.appbuilder.models.mixins import AuditMixin, FileColumn, ImageColumn
 from flask.ext.appbuilder.filemanager import ImageManager
 from utils import today
+from app import db
 
 now = today
+uid = uuid.uuid4().hex
 
 
 class SmsloggerLoggedmessage(Model):
@@ -19,7 +23,7 @@ class SmsloggerLoggedmessage(Model):
     identity = Column(String(100), nullable=False)
     status = Column(String(32))
     response_to_id = Column(ForeignKey(u'smslogger_loggedmessage.id'), index=True)
-    response_to = relationship(u'SmsloggerLoggedmessage', remote_side=[id])
+    response_to = relationship(u'SmsloggerLoggedmessage')
 
     def incoming(self):
         return self.direction == 'I'
@@ -41,44 +45,6 @@ class SmsloggerLoggedmessage(Model):
     def mdate(self):
         date = self.date
         return datetime.datetime(date.year, date.month, date.day)
-
-
-class Election(AuditMixin, Model):
-    __tablename__ = 'elections'
-
-    id = Column(Integer, primary_key=True)
-    name = Column(String(255), nullable=False, index=True)
-    uuid = Column(String(50), unique=True)
-    is_approved = Column(Boolean)
-    voting_starts_at_date = Column(DateTime, default=today)
-    voting_ends_at_date = Column(DateTime, default=today)
-    voting_extended_until_date = Column(DateTime, nullable=True)
-    approved_at_date = Column(DateTime, default=today)
-    frozen_at_date = Column(DateTime, nullable=True)
-    archived_at_date = Column(DateTime, nullable=True)
-    voters_frozen_at_date = Column(DateTime, nullable=True)
-    result_tallied_at_date = Column(DateTime, nullable=True)
-
-    def __repr__(self):
-        return self.name
-
-    def has_started(self):
-        '''Returns true if voting has started, false otherwise'''
-        return self.voting_starts_at_date != None and self.voting_starts_at_date < now
-
-    def is_archived(self):
-        '''Returns true if the election has been archived, false otherwise'''
-        return self.archived_at_date != None
-
-    def is_frozen(self):
-        # Returns true if the election has been frozen and thus it cannot be
-        # editted anymore, false otherwise
-        return self.frozen_at_date != None
-
-    def is_tallied(self):
-        '''Returns true if the election has been tallied, false otherwise'''
-        return self.result_tallied_at_date != None
-
 
 class County(AuditMixin, Model):
     __tablename__ = 'counties'
@@ -202,19 +168,117 @@ class Voters(Model):
         return self.ward.constituency
 
 
+class Election(AuditMixin, Model):
+    __tablename__ = 'elections'
+
+    id = Column(Integer, primary_key=True)
+    name = Column(String(255), nullable=False, index=True)
+    uuid = Column(String(50), unique=True, default=uid)
+    is_approved = Column(Boolean)
+    voting_starts_at_date = Column(DateTime, default=today)
+    voting_ends_at_date = Column(DateTime, default=today)
+    voting_extended_until_date = Column(DateTime, nullable=True)
+    approved_at_date = Column(DateTime, default=today)
+    frozen_at_date = Column(DateTime, nullable=True)
+    archived_at_date = Column(DateTime, nullable=True)
+    voters_frozen_at_date = Column(DateTime, nullable=True)
+    result_tallied_at_date = Column(DateTime, nullable=True)
+    ward_id = Column(ForeignKey(u'wards.id'), nullable=True, index=True)
+    post_id = Column(ForeignKey(u'posts.id'), nullable=False, index=True)
+
+    posts = relationship(u'Post')
+    wards = relationship(u'Ward')
+
+    def __repr__(self):
+        return str(self.name)+"-"+str(self.posts.name)+" ("+str(self.area())+")"
+
+    def area(self):
+
+        if (self.posts.name == 'Senator' or
+           self.posts.name == 'Women Representative	' or
+           self.posts.name == 'Governor'):
+            try:
+                p = db.session.query(County).get(self.ward_id)
+                return str(p)+" County"
+            except:
+                return "UNKNOWN"
+        if self.posts.name == 'Member of Parliament':
+            try:
+                p = db.session.query(Constituency).get(self.ward_id)
+                return str(p)+" Constituency"
+            except:
+                return "UNKNOWN"
+        if self.posts.name == 'County Assembly Representative':
+            try:
+                p = db.session.query(Ward).get(self.ward_id)
+                return str(p)+" Ward"
+            except:
+                return "UNKNOWN"
+        else:
+            return self.posts.name
+
+
+    def has_started(self):
+        '''Returns true if voting has started, false otherwise'''
+        return self.voting_starts_at_date != None and self.voting_starts_at_date < datetime.datetime.now()
+
+    def status(self):
+        if (self.voting_starts_at_date < datetime.datetime.now() and self.voting_ends_at_date > datetime.datetime.now()):
+            return "Completed"
+    def is_archived(self):
+        '''Returns true if the election has been archived, false otherwise'''
+        return self.archived_at_date != None
+
+    def is_frozen(self):
+        # Returns true if the election has been frozen and thus it cannot be
+        # editted anymore, false otherwise
+        return self.frozen_at_date != None
+
+    def is_tallied(self):
+        '''Returns true if the election has been tallied, false otherwise'''
+        return self.result_tallied_at_date != None
+
+
+
 class Delegates(AuditMixin, Model):
     __tablename__ = 'delegates'
 
     id = Column(Integer, primary_key=True)
     delegate = Column(ForeignKey('voters.id'), nullable=False, index=True)
     photo = Column(ImageColumn)
-    post_id = Column(ForeignKey('posts.id'), nullable=False, index=True)
     candidate_key = Column(String(50), nullable=True, index=True, unique=True)
-    posts = relationship('Post')
+    election_id = Column(ForeignKey('elections.id'), nullable=False, index=True)
+    elections = relationship('Election')
     voters = relationship('Voters')
+
+    __table_args__ = (
+        UniqueConstraint('delegate', 'election_id'),
+    )
 
     def __repr__(self):
         return self.delegate
+
+    def pk_election(self):
+        return self.elections.wards.id
+
+    def pk_delegate(self):
+        return self.voters.wards.id
+
+    def posts(self):
+        return self.elections.posts.name
+
+    def full_name(self):
+        return self.voters.full_name()
+
+    def photo_img(self):
+        im = ImageManager()
+        if self.photo:
+            return Markup('<a href="' + url_for('DelegatesView.show',
+                                                pk=str(self.id)) + '" class="thumbnail"><img src="' +
+                          im.get_url(self.photo) + '" alt="Photo" class="img-rounded img-responsive"></a>')
+        else:
+            return Markup('<a href="' + url_for('DelegatesView.show',
+                                                pk=str(self.id)) + '" class="thumbnail"><img src="//:0" alt="Photo" class="img-responsive"></a>')
 
 
 class Votes(Model):
@@ -224,9 +288,12 @@ class Votes(Model):
     candidate_id = Column(ForeignKey('delegates.id'), nullable=False, index=True)
     voter_id = Column(ForeignKey('voters.id'), nullable=False, index=True)
     created_on = Column(DateTime, default=datetime.datetime.now, nullable=False)
+    election_id = Column(ForeignKey('elections.id'), nullable=False, index=True)
+    elections = relationship('Election')
     delegates = relationship('Delegates')
     voters = relationship('Voters')
 
     __table_args__ = (
-        UniqueConstraint('candidate_id', 'voter_id'),
+        UniqueConstraint('candidate_id', 'voter_id', 'election_id'),
+        UniqueConstraint('voter_id', 'election_id'),
     )

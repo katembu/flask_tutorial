@@ -9,10 +9,11 @@ from flask_appbuilder.views import SimpleFormView
 from flask_appbuilder.charts.views import DirectChartView, DirectByChartView, GroupByChartView
 from flask_appbuilder.models.group import aggregate_count, aggregate_sum
 from flask.ext.babelpkg import lazy_gettext as _
-from flask import flash, request
+from flask import flash, request, render_template
 from app import appbuilder, db
 from .models import *
 from .forms import *
+from .utils import generateIdentifier
 
 
 def pretty_month_year(value):
@@ -108,19 +109,11 @@ class PartyView(ModelView):
 
 class SmsloggerView(ModelView):
     datamodel = SQLAInterface(SmsloggerLoggedmessage)
+    base_order = ('date', 'desc')
     show_title = "SMS Log"
     add_form = SMSForm
     page_size = 20
-    list_columns = ['identity', 'direction', 'text', 'status']
-
-
-class ElectionView(ModelView):
-    datamodel = SQLAInterface(Election)
-    list_columns = ['name']
-    add_columns = ['name', 'voting_starts_at_date', 'voting_ends_at_date',
-                   'is_approved']
-    edit_columns = ['name', 'voting_starts_at_date', 'voting_ends_at_date',
-                    'is_approved']
+    list_columns = ['identity', 'direction', 'text', 'status', 'date']
 
 
 class VotersView(ModelView):
@@ -157,27 +150,47 @@ class VotersView(ModelView):
 
 class DelegatesView(ModelView):
     datamodel = SQLAModel(Delegates)
-    add_columns = ['voters', 'posts']
-    edit_columns = ['voters', 'posts']
-    list_columns = ['candidate_key', 'voters', 'posts', 'voters.ward',
-                    'voters.ward.constituency', 'voters.ward.constituency.county']
+    validators_columns = {'pk_election': [EqualTo('pk_delegate',
+                           message='fields must match')]}
+    add_columns = ['voters', 'elections', 'photo']
+    edit_columns = ['voters', 'elections']
+    list_columns = ['candidate_key', 'photo_img', 'voters', 'posts', 'voters.ward',
+                    'voters.ward.constituency', 'voters.ward.constituency.county', 'elections']
+    show_fieldsets = [
+        ('Personal Information', {'fields': ['voters', 'voters.gender', 'elections', 'photo_img']}),
+        (
+            'Description',
+            {'fields': ['elections'], 'expanded': True}),
+    ]
 
     def post_add(self, item):
-        p = item.posts.name.upper()
-        item.candidate_key = p[0]+str(item.id)
+
+        p = item.elections.posts.name.upper()
+        item.candidate_key = p[0]+str(generateIdentifier())
         db.session.commit()
 
     def post_update(self, item):
-        p = item.posts.name.upper()
+        p = item.elections.posts.name.upper()
         item.candidate_key = p[0]+str(item.id)
         db.session.commit()
+
+
+class ElectionView(ModelView):
+    datamodel = SQLAInterface(Election)
+    list_columns = ['name', 'posts', 'area']
+    label_columns = {'wards': _('AREA')}
+    add_columns = ['name', 'posts', 'wards', 'voting_starts_at_date', 'voting_ends_at_date',
+                   'is_approved']
+    edit_columns = ['name', 'posts', 'wards', 'voting_starts_at_date', 'voting_ends_at_date',
+                    'is_approved']
+    related_views = [DelegatesView]
 
 
 class VotersChartView(GroupByChartView):
     datamodel = SQLAModel(Voters)
     chart_title = 'Registered Voters'
     label_columns = VotersView.label_columns
-    chart_type = 'PieChart'
+    chart_type = 'BarChart'
     search_columns = ['gender', 'ward']
 
     definitions = [
@@ -224,7 +237,46 @@ class SMSReportChartView(GroupByChartView):
     ]
 
 
+class MyView(BaseView):
+    route_base = "/election"
+    default_view = 'results'
+
+    @expose('/result/')
+    @has_access
+    def results(self):
+        el = db.session.query(Election)
+        # do something with param1
+        # and return it
+        # return param1
+        # do something with param1
+        # and render template with param
+        # param1 = 'Goodbye %s' % (param1)
+        # self.update_redirect()
+        self.update_redirect()
+        return self.render_template('method3.html', param1=el)
+
+    @expose('/show/<string:param1>')
+    def show(self, param1):
+        p = db.session.query(Election).filter_by(uuid=param1)
+        if p.count() == 1:
+            el = p[0]
+            info = {"election": el}
+            results = db.session.query(func.count(Votes.candidate_id)
+                        .label('votecount'), Votes.elections,
+                        Votes.delegates.label('d')).filter_by(elections=el)
+                        .group_by(Votes.candidate_id)
+            print results
+            name = el.name
+            '''Get Delegates Votesself.update_redirect() '''
+            return self.render_template('results.html',
+                               result=results, info=info)
+        else:
+            return "Erro"
+
+
 db.create_all()
+appbuilder.add_view_no_menu(MyView())
+
 
 appbuilder.add_view(VotersView, "Voters", category="Settings")
 appbuilder.add_view(DelegatesView, "Delegates", category="Settings")
@@ -238,4 +290,7 @@ appbuilder.add_view(WardView, "Ward", category="Settings")
 appbuilder.add_view(SmsloggerView, "SMS LOGGER", category="Settings")
 appbuilder.add_view(VotersChartView, "Voters Registered", category="Reports")
 appbuilder.add_view(SMSReportChartView, "SMS Report", category="Reports")
+# appbuilder.add_view(MyView, "Election Results", category="Reports")
+
+appbuilder.add_link("Election Results", href='/election/result', category='Reports')
 appbuilder.add_view_no_menu(Sms())
