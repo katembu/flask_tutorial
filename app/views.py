@@ -261,10 +261,7 @@ class MyView(BaseView):
         if p.count() == 1:
             el = p[0]
             info = {"election": el}
-            results = db.session.query(func.count(Votes.candidate_id)
-                        .label('votecount'), Votes.elections,
-                        Votes.delegates.label('d')).filter_by(elections=el)
-                        .group_by(Votes.candidate_id)
+            results = db.session.query(func.count(Votes.candidate_id).label('votecount'), Votes.elections, Votes.delegates.label('d')).filter_by(elections=el).group_by(Votes.candidate_id)
             print results
             name = el.name
             '''Get Delegates Votesself.update_redirect() '''
